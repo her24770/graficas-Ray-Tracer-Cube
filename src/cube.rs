@@ -1,17 +1,23 @@
 use crate::ray_intersect::{Intersect, Material, RayIntersect};
+use crate::texture::Texture;
 use nalgebra_glm::Vec3;
+use std::rc::Rc;
 
 pub struct Cube {
     pub center: Vec3,
-    pub size: f32,
-    pub material: Material,
+    /// Ancho, alto y profundidad totales de la caja (no necesariamente igual
+    /// en los tres ejes: permite tanto un cubo como una base/piso delgado).
+    pub size: Vec3,
+    pub texture: Rc<Texture>,
+    pub albedo: f32,
+    pub uv_scale: f32,
 }
 
 impl RayIntersect for Cube {
     fn ray_intersect(&self, ray_origin: &Vec3, ray_direction: &Vec3) -> Option<Intersect> {
-        let half = self.size / 2.0;
-        let min = self.center - Vec3::new(half, half, half);
-        let max = self.center + Vec3::new(half, half, half);
+        let half = self.size * 0.5;
+        let min = self.center - half;
+        let max = self.center + half;
 
         let axes = [
             (
@@ -80,12 +86,28 @@ impl RayIntersect for Cube {
         let t = if t_near > 0.0 { t_near } else { t_far };
 
         let point = ray_origin + ray_direction * t;
+        let local = point - self.center;
+
+        // Coordenadas UV locales a la cara golpeada: se toman los dos ejes
+        // distintos al de la normal y se normalizan de [-half, half] a [0, 1].
+        let (u, v) = if normal.x.abs() > 0.5 {
+            ((local.z / half.z + 1.0) / 2.0, (local.y / half.y + 1.0) / 2.0)
+        } else if normal.y.abs() > 0.5 {
+            ((local.x / half.x + 1.0) / 2.0, (local.z / half.z + 1.0) / 2.0)
+        } else {
+            ((local.x / half.x + 1.0) / 2.0, (local.y / half.y + 1.0) / 2.0)
+        };
+
+        let u = (u * self.uv_scale).rem_euclid(1.0);
+        let v = (v * self.uv_scale).rem_euclid(1.0);
+
+        let diffuse = self.texture.sample(u, v);
 
         Some(Intersect {
             point,
             normal,
             distance: t,
-            material: self.material,
+            material: Material::new(diffuse, self.albedo),
         })
     }
 }
